@@ -1,9 +1,12 @@
 import os
 import subprocess
-from flask import Flask, render_template, request, send_file, jsonify
-from io import BytesIO
+import time
+import threading
+from flask import Flask, render_template, request, send_file, jsonify, Response
 
 app = Flask(__name__)
+DOWNLOAD_FOLDER = "downloads"
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)  # Ensure the downloads folder exists
 
 @app.route('/')
 def index():
@@ -36,32 +39,72 @@ def convert():
         return jsonify({'title': 'YouTube Video', 'formats': formats})
 
     except subprocess.CalledProcessError as e:
-        return jsonify({'error': f'Failed to retrieve formats: {e.stderr}'})
+        return jsonify({'error': f'Failed to retrieve formats: {e.stderr}'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/download', methods=['POST'])
 def download():
     video_url = request.form.get('url')
     itag = request.form.get('itag')
     format_type = request.form.get('format')
+    # Just accept the timestamp parameter, no need to use it
+    timestamp = request.form.get('timestamp')
+    
+    # Rest of your function remains the same...
 
     try:
-        temp_file = f"downloads/temp_file.{format_type}"
+        # Get the video title for naming
+        title_result = subprocess.run(
+            ['yt-dlp', '--get-title', video_url],
+            text=True, capture_output=True, check=True
+        )
+        video_title = title_result.stdout.strip().replace(" ", "_").replace("/", "_")
 
-        # Download selected format
-        subprocess.run(['yt-dlp', '-f', itag, '-o', temp_file, video_url], check=True)
+        # Construct the filename
+        filename = f"{video_title}.{format_type}"
+        file_path = os.path.join(DOWNLOAD_FOLDER, filename)
 
-        return send_file(temp_file, as_attachment=True)
+        # Run yt-dlp to download the file
+        if format_type == "mp4":
+            command = ['yt-dlp', '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]', '-o', file_path, video_url]
+        else:
+            command = ['yt-dlp', '-f', itag, '-o', file_path, video_url]
+
+        print("Running command:", " ".join(command))
+        subprocess.run(command, check=True)
+
+        # Ensure proper mimetype for downloads
+        mimetype = "audio/mpeg" if format_type == "mp3" else "video/mp4"
+
+        # Ensure the browser always asks where to save the file
+        response = send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype=mimetype
+        )
+
+        # Delete file in a separate thread **AFTER** sending
+        def delete_file():
+            time.sleep(5)  # Wait for the browser to finish downloading
+            try:
+                os.remove(file_path)
+                print(f"✅ Deleted file: {file_path}")
+            except Exception as e:
+                print(f"⚠️ Failed to delete file {file_path}: {e}")
+
+        threading.Thread(target=delete_file, daemon=True).start()
+
+        print(f"✅ Sending file: {filename}")
+        return response
 
     except subprocess.CalledProcessError as e:
-        return jsonify({'error': f'Failed to download: {e.stderr}'})
+        return jsonify({'error': f'Failed to download video: {e.stderr}'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
-    finally:
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
 
 if __name__ == '__main__':
     app.run(debug=True)

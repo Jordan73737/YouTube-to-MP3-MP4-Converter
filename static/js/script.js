@@ -83,21 +83,48 @@ async function downloadFormat(itag, format) {
   try {
     resultsDiv.innerHTML += `<p>Downloading ${format}...</p>`;
 
-    const response = await fetch("/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `url=${encodeURIComponent(url)}&itag=${itag}&format=${format}`,
-    });
+    // Create a form to submit directly
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/download";
 
-    if (!response.ok) throw new Error("Failed to download");
+    // Add the necessary fields
+    const urlField = document.createElement("input");
+    urlField.type = "hidden";
+    urlField.name = "url";
+    urlField.value = url;
 
-    const blob = await response.blob();
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `download.${format}`;
-    link.click();
+    const itagField = document.createElement("input");
+    itagField.type = "hidden";
+    itagField.name = "itag";
+    itagField.value = itag;
 
-    resultsDiv.innerHTML += `<p style="color: green;">Download complete!</p>`;
+    const formatField = document.createElement("input");
+    formatField.type = "hidden";
+    formatField.name = "format";
+    formatField.value = format;
+
+    // Add a timestamp to make each request unique
+    const timestampField = document.createElement("input");
+    timestampField.type = "hidden";
+    timestampField.name = "timestamp";
+    timestampField.value = Date.now();
+
+    // Add fields to form
+    form.appendChild(urlField);
+    form.appendChild(itagField);
+    form.appendChild(formatField);
+    form.appendChild(timestampField);
+
+    // Add form to document, submit it, then remove it
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+
+    // Update status
+    setTimeout(() => {
+      resultsDiv.innerHTML += `<p style="color: green;">Download started!</p>`;
+    }, 1000);
   } catch (error) {
     resultsDiv.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
   }
